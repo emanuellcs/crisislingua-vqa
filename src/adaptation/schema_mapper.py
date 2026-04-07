@@ -2,7 +2,10 @@ import json
 import logging
 from pathlib import Path
 from typing import Generator, List, Dict, Any
-from adaptive_client import AdaptiveDataClient
+
+from .adaptive_client import AdaptiveDataClient
+from .filter_noise import NoiseFilter
+from .intent_extractor import IntentExtractor
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -12,7 +15,7 @@ logger = logging.getLogger("SchemaMapper")
 
 class AdaptationPipeline:
     """
-    Streams raw data through the Adaptive Data platform to sanitize, 
+    Streams raw data through the modularized Adaptive Data pipeline to sanitize, 
     extract intent, and map to FEMA ESF humanitarian frameworks.
     """
     
@@ -22,8 +25,12 @@ class AdaptationPipeline:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.output_file = self.output_dir / "reshaped_mapped_reports.jsonl"
         
+        # Initialize modular components
         self.client = AdaptiveDataClient()
-        self.batch_size = 50  # Optimized for NLP/VLM payload limits
+        self.noise_filter = NoiseFilter(client=self.client)
+        self.intent_extractor = IntentExtractor(client=self.client)
+        
+        self.batch_size = 50 
 
     def stream_raw_data(self) -> Generator[Dict[str, Any], None, None]:
         """Yields records from raw JSONL files one by one to save memory."""
@@ -39,12 +46,7 @@ class AdaptationPipeline:
                         yield json.loads(line)
 
     def process_pipeline(self):
-        """
-        Executes the three-step Adaptation process:
-        1. Noise Filtering
-        2. Intent Extraction (Code-switched text)
-        3. FEMA ESF Schema Mapping
-        """
+        """Executes the Adaptation process in batches."""
         current_batch = []
         total_processed = 0
         
@@ -57,7 +59,6 @@ class AdaptationPipeline:
                     total_processed += len(current_batch)
                     current_batch = []
             
-            # Process any remaining records in the final partial batch
             if current_batch:
                 self._execute_batch_and_write(current_batch, out_f)
                 total_processed += len(current_batch)
@@ -65,15 +66,15 @@ class AdaptationPipeline:
         logger.info(f"Adaptation Pipeline complete. Successfully reshaped {total_processed} records.")
 
     def _execute_batch_and_write(self, batch: List[Dict[str, Any]], file_obj):
-        """Passes the batch sequentially through the platform's reshaping endpoints."""
+        """Passes the batch sequentially through the modular platform endpoints."""
         try:
-            # Step 1: Strip irrelevant social media chatter
-            filtered_batch = self.client.reshape_batch(batch, operation="filter_noise")
+            # Step 1: Strip irrelevant social media chatter via NoiseFilter
+            filtered_batch = self.noise_filter.process_batch(batch)
             
-            # Step 2: Reshape code-switched phrases into formalized intents
-            intent_batch = self.client.reshape_batch(filtered_batch, operation="extract_intent")
+            # Step 2: Reshape code-switched phrases via IntentExtractor
+            intent_batch = self.intent_extractor.process_batch(filtered_batch)
             
-            # Step 3: Map the text to standard humanitarian frameworks (FEMA ESF)
+            # Step 3: Map the text to standard humanitarian frameworks (FEMA ESF) directly via client
             mapped_batch = self.client.reshape_batch(intent_batch, operation="map_fema_esf")
             
             # Write optimized data to disk
@@ -84,11 +85,9 @@ class AdaptationPipeline:
             logger.error(f"Batch processing failed. Dropping batch to preserve pipeline stability: {e}")
 
 if __name__ == "__main__":
-    # Point the pipeline to the outputs from the data collection phase
     input_files = [
         "../../data/raw/ushahidi_raw_reports.jsonl",
         "../../data/raw/multimodal_news_scrape.jsonl"
     ]
-    
     pipeline = AdaptationPipeline(raw_data_paths=input_files)
     pipeline.process_pipeline()

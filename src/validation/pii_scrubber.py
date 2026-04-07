@@ -1,8 +1,13 @@
 import re
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Dict, Any, Generator
+
+# Add root src to path so we can import the deployment exporter
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from deployment.jsonl_exporter import JSONLExporter
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -12,11 +17,10 @@ logger = logging.getLogger("PIIScrubber")
 
 class DataScrubber:
     """
-    PII scrubber. 
-    Streams data and redacts sensitive information to comply with ethical frameworks.
+    Production-grade PII scrubber. 
+    Streams data, redacts sensitive information, and routes to JSONLExporter.
     """
     
-    # High-confidence Regex patterns for global PII
     PII_PATTERNS = {
         "EMAIL": r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+",
         "PHONE": r"(\+?\d{1,3}[-.\s]?)?(\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{4}",
@@ -31,7 +35,9 @@ class DataScrubber:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.output_file = self.output_dir / "crisislingua_vqa_sanitized.jsonl"
         
-        # Compile regex patterns for performance over large datasets
+        # Initialize the shared JSONL exporter
+        self.exporter = JSONLExporter(output_file=str(self.output_file))
+        
         self.compiled_patterns = {
             key: re.compile(pattern) for key, pattern in self.PII_PATTERNS.items()
         }
@@ -61,7 +67,6 @@ class DataScrubber:
                     
                 record = json.loads(line)
                 
-                # Recursively scrub text fields
                 if "content" in record:
                     record["content"] = self.redact_text(record["content"])
                 if "title" in record:
@@ -70,15 +75,10 @@ class DataScrubber:
                 yield record
 
     def execute(self):
-        """Executes the scrubbing pipeline and writes the sanitized output."""
-        processed_count = 0
-        
-        with open(self.output_file, 'w', encoding='utf-8') as out_f:
-            for safe_record in self.stream_and_scrub():
-                out_f.write(json.dumps(safe_record, ensure_ascii=False) + '\n')
-                processed_count += 1
-                
-        logger.info(f"PII Scrubbing complete. {processed_count} records safely written to {self.output_file}")
+        """Executes the scrubbing pipeline and streams output directly to the exporter."""
+        logger.info("Executing PII Scrubber stream...")
+        self.exporter.export_stream(self.stream_and_scrub(), append=False)
+        logger.info("PII Scrubbing and export routing complete.")
 
 if __name__ == "__main__":
     scrubber = DataScrubber()
