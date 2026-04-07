@@ -3,3 +3,4 @@ tenacity
 python-dotenv
 beautifulsoup4
 feedparser
+regex
