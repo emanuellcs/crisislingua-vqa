@@ -44,20 +44,52 @@ class UshahidiArchiveFetcher:
         )
         self.session.mount("https://", HTTPAdapter(max_retries=retries))
 
+    def get_categories(self, base_url: str) -> Dict[int, str]:
+        """Fetches survey categories to map IDs to names for downstream ESF mapping."""
+        endpoint = f"{base_url.rstrip('/')}/api/v3/categories"
+        try:
+            response = self.session.get(endpoint, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            return {cat['id']: cat['name'] for cat in data.get('results', [])}
+        except Exception as e:
+            logger.warning(f"Could not fetch categories from {base_url}: {e}")
+            return {}
+
+    def get_media_url(self, base_url: str, media_id: int) -> str:
+        """Resolves a media ID to a direct image URL for multimodal VQA."""
+        endpoint = f"{base_url.rstrip('/')}/api/v3/media/{media_id}"
+        try:
+            response = self.session.get(endpoint, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('url', '')
+        except Exception as e:
+            logger.warning(f"Could not fetch media {media_id}: {e}")
+            return ""
+
     def stream_deployment_posts(self, base_url: str) -> Generator[Dict[str, Any], None, None]:
         """
-        Paginates through an Ushahidi deployment, yielding raw posts one by one
-        to prevent memory exhaustion on massive datasets.
+        Paginates through an Ushahidi deployment, yielding raw posts with 
+        resolved media and categories.
         """
         endpoint = f"{base_url.rstrip('/')}/api/v3/posts"
-        limit = 100
+        limit = 500
         offset = 0
         total_fetched = 0
 
         logger.info(f"Initiating extraction from deployment: {endpoint}")
+        
+        # Prefetch categories for eager mapping
+        categories = self.get_categories(base_url)
 
         while True:
-            params = {"limit": limit, "offset": offset}
+            params = {
+                "limit": limit, 
+                "offset": offset,
+                "status": "published",
+                "tag": "disaster|earthquake|flood"
+            }
             try:
                 response = self.session.get(endpoint, params=params, timeout=15)
                 response.raise_for_status()
@@ -72,7 +104,20 @@ class UshahidiArchiveFetcher:
                 break
 
             for post in results:
-                # We yield the raw post object directly to be saved
+                # Eagerly map category names
+                post_cat_ids = post.get('categories', [])
+                post['category_names'] = [categories.get(cid, f"Unknown({cid})") for cid in post_cat_ids]
+                
+                # Resolve media URLs for VQA pairs
+                media_urls = []
+                for media_ref in post.get('media', []):
+                    m_id = media_ref if isinstance(media_ref, int) else media_ref.get('id')
+                    if m_id:
+                        m_url = self.get_media_url(base_url, m_id)
+                        if m_url:
+                            media_urls.append(m_url)
+                post['media_urls'] = media_urls
+                
                 yield post
                 total_fetched += 1
 

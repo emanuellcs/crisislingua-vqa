@@ -4,89 +4,94 @@
 
 ## 🌍 Context
 
-During rapid-onset natural disasters, first responders rely heavily on real-time situational awareness crowdsourced from affected populations via social media and micro-blogs. However, mainstream Vision-Language Models (VLMs) and Natural Language Processing (NLP) systems are overwhelmingly optimized for Western, English-speaking contexts and orderly urban environments.
+During rapid-onset natural disasters, first responders rely on real-time situational awareness crowdsourced from affected populations. However, mainstream Vision-Language Models (VLMs) often suffer from "competence collapse" in the Global South due to chaotic, code-switched text and hyper-local geographical references.
 
-When deployed in the Global South, these models encounter the extreme "long tail" of crisis informatics: chaotic, code-switched text, hyper-local geographical references, severe spelling variations, and unpredictable visual environments. This results in a critical gap known as "competence collapse," where models exhibit severe, life-threatening utility degradation. 
+**CrisisLingua-VQA** provides a robust benchmark dataset and pipeline for perception and reasoning in these complex contexts, focusing on highly vulnerable regions and under-resourced languages.
 
-CrisisLingua-VQA solves this by creating a robust benchmark dataset designed explicitly for perception and reasoning in these complex crisis contexts, focusing on highly vulnerable regions and under-resourced languages.
+### Target Languages (ISO 639-3)
+*   **East Africa:** Swahili (`swa`), Amharic (`amh`)
+*   **Southeast Asia (Philippines):** Tagalog (`tgl`), Cebuano (`ceb`)
+*   **South Asia (India):** Marathi (`mar`), Bhojpuri (`bho`)
 
-**Target Languages:**
-* **Swahili & Amharic:** East Africa / Horn of Africa
-* **Tagalog (Filipino) & Cebuano:** The Philippines
-* **Marathi & Bhojpuri:** Indian Subcontinent
+---
 
-## 🏗️ Overview of the Approach
+## 🏗️ Technical Architecture
 
-This repository houses the end-to-end pipeline required to aggregate, clean, and structure the CrisisLingua-VQA dataset. The architecture relies heavily on the **Adaptive Data** platform to overcome the tokenization failures common in informal languages.
+The pipeline is divided into four distinct phases, now fully integrated with production-ready humanitarian and data-crawling APIs.
 
-### The 4-Phase Pipeline
+### Phase 1: Production Data Acquisition
+*   **Ushahidi v3 API**: Real-time extraction from comma-separated deployment URLs. Implements full pagination, eager category mapping, and recursive media ID resolution for multimodal VQA pairing.
+*   **CLEAR Global (TWB) Integration**:
+    *   **LUDP (Language Use Data Platform)**: Automated fetching of regional language usage and terminology data.
+    *   **Glossary Scraping**: Dynamic BeautifulSoup-based scraping of `glossaries.clearglobal.org` for specialized disaster terminology.
+*   **Common Crawl (CC-NEWS) Streaming**: High-scale discovery of regional news articles via direct WARC (Web ARChive) streaming. Uses heuristic keyword matching on the raw HTML stream to isolate disaster-relevant image-text pairs.
 
-1.  **Phase 1: Acquisition**
-    * Ingests structured data from Ushahidi historical deployment archives and Translators Without Borders (TWB) specialized crisis glossaries.
-    * Executes targeted multimodal crawling across Common Crawl and regional news subsets using heuristic keyword matching for localized disaster terminology.
-2.  **Phase 2: Adaptation (Powered by Adaptive Data)**
-    * **Dynamic Filtering:** Automatically identifies and strips irrelevant social media chatter to isolate actionable distress signals.
-    * **Intent Extraction:** Reshapes code-switched phrases into formalized intent categories.
-    * **Framework Mapping:** Adaptively maps unstructured text to standardized humanitarian frameworks, such as FEMA Emergency Support Functions (ESF) or OCHA Multi-Cluster/Sector Initial Rapid Assessment (MIRA) guidelines.
-    * **Compute Optimization:** Utilizes workload-aware operation reordering and dynamic OP fusion techniques within the platform to handle the heavy computational load of multimodal image-text pairing.
-3.  **Phase 3: Validation**
-    * Conducts rigorous data quality audits, completely removes Personally Identifiable Information (PII), and verifies dataset balance across the targeted long-tail distributions.
-4.  **Phase 4: Deployment**
-    * Exports artifacts in machine-ready formats (JSONL) and pushes the final metadata to Kaggle and Hugging Face.
+### Phase 2: Adaptation (Powered by the `adaption` SDK)
+Transitioned from raw HTTP calls to the official **Adaptive Data Python SDK** for high-performance data reshaping:
+*   **`client.ingest()`**: Batch upload of raw multimodal signals.
+*   **`client.adapt()`**: Executes noise filtering, code-switch normalization, and mapping to **FEMA ESF** / **MIRA** frameworks.
+*   **`client.export()`**: Generates optimized JSONL artifacts for downstream model training.
 
-## 📊 Details of the Submission
+### Phase 3: Validation
+*   **PII Scrubbing**: Automated removal of Personally Identifiable Information to ensure data sovereignty.
+*   **Distribution Audit**: Statistical verification of dataset balance across the "long-tail" of languages.
 
-The final dataset generated by this codebase provides a critical bridge between unstructured human distress signals and formal logistics routing. 
+### Phase 4: Deployment
+*   Final export to machine-ready `JSONL` formats for submission to Kaggle and Hugging Face.
 
-* **Format:** The final output is formatted as `JSONL` files, ensuring high interoperability for modern VLM training pipelines.
-* **Ethical Constraints:** The pipeline features automated scrubbing processes to ensure zero PII remains in the final dataset, respecting data sovereignty and privacy standards.
-* **Impact:** By linking informal multimodal inputs to formal ESF codes, the dataset allows humanitarian agencies to immediately route search & rescue, shelter, and perishable goods based on local dialect inputs.
+---
 
-## 📂 Repository Structure
+## 🛠️ Setup & Usage
+
+### 1. Environment Configuration
+Create a `.env` file in the root directory:
+```bash
+# Ushahidi Deployments (Comma-separated URLs)
+USHAHIDI_DEPLOYMENT_URLS="https://uchaguzi.or.ke,https://haiti.ushahidi.com"
+
+# Adaptive Data Platform
+ADAPTION_API_KEY="your_api_key_here"
+ADAPTION_BASE_URL="https://api.adaptionlabs.ai/v1"
+```
+
+### 2. Installation
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Execution Flow
+Run the pipeline components in sequence:
+```bash
+# Generate heuristic keywords from TWB
+python src/acquisition/twb_glossary.py
+
+# Collect multimodal data (Common Crawl & Ushahidi)
+python src/acquisition/multimodal_scraper.py
+python src/acquisition/ushahidi_api.py
+
+# Reshape data via Adaptive Data Platform
+python src/adaptation/adaptive_client.py
+```
+
+---
+
+## 📊 Repository Structure
 
 ```text
-crisislingua-vqa/
-│
-├── .github/
-│   └── workflows/                # CI/CD pipelines for automated PII checks
-│
-├── data/                         # Local data storage (IGNORED BY GIT)
-│   ├── raw/                      # Unprocessed scraped images and text
-│   ├── intermediate/             # Pre-processed data before Adaptive Data ingestion
-│   └── processed/                # Final JSONL files ready for Kaggle
-│
-├── notebooks/                    # Jupyter notebooks for EDA and rapid prototyping
-│   ├── 01_data_exploration.ipynb
-│   └── 02_adaptive_platform_tests.ipynb
-│
-├── src/                          # Core source code
-│   ├── acquisition/              # Phase 1: Data Gathering
-│   │   ├── ushahidi_api.py       # Pulls structural data from disaster archives
-│   │   ├── twb_glossary.py       # TWB glossary ingestor
-│   │   └── multimodal_scraper.py # Common Crawl/News scraper with heuristic matching
-│   │
-│   ├── adaptation/               # Phase 2: Processing via Adaption
-│   │   ├── adaptive_client.py    # API wrapper for the Adaptive Data platform
-│   │   ├── filter_noise.py       # Strips irrelevant social media chatter
-│   │   ├── intent_extractor.py   # Reshapes code-switched text into intents
-│   │   └── schema_mapper.py      # Maps unstructured text to FEMA ESF standards
-│   │
-│   ├── validation/               # Phase 3: Quality Control
-│   │   ├── pii_scrubber.py       # Ensures removal of sensitive personal info
-│   │   └── distribution_audit.py # Verifies long-tail language representation
-│   │
-│   └── deployment/               # Phase 4: Final Export
-│       ├── jsonl_exporter.py     # Formats final output to JSONL
-│
-├── .gitignore                    # Ignores large raw data, API keys, and virtual envs
-├── LICENSE                       # Apache 2.0 License
-├── requirements.txt              # Python dependencies 
-└── README.md                     # Project documentation
+src/
+├── acquisition/
+│   ├── ushahidi_api.py       # Production V3 API client
+│   ├── twb_glossary.py       # LUDP & Web Scraping ingestor
+│   └── multimodal_scraper.py # CC-NEWS WARC streamer
+├── adaptation/
+│   ├── adaptive_client.py    # Official SDK integration
+│   ├── filter_noise.py       # Logic for cleaning social chatter
+│   └── schema_mapper.py      # FEMA/MIRA framework mapping
+├── validation/               # PII scrubbing & audits
+└── deployment/               # JSONL export logic
 ```
 
 ## ⚖️ License
 
-To comply with the [Uncharted Data Challenge](https://www.adaptionlabs.ai/blog/the-uncharted-data-challenge) mandates and ensure maximum utility for global NGOs and academic researchers, this project utilizes a dual-licensing structure:
-
-  * **Codebase & Scripts:** [Apache License 2.0](https://www.google.com/search?q=LICENSE)
-  * **Dataset Weights & Annotations:** Creative Commons Attribution 4.0 International (CC BY 4.0)
+*   **Codebase:** [Apache License 2.0](LICENSE)
+*   **Dataset:** Creative Commons Attribution 4.0 International (CC BY 4.0)
