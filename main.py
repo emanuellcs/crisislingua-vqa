@@ -1,6 +1,7 @@
 import sys
 import logging
 from pathlib import Path
+import shutil
 
 # Add src to the path to resolve imports
 sys.path.append(str(Path(__file__).resolve().parent))
@@ -11,7 +12,6 @@ from src.acquisition.multimodal_scraper import MultimodalNewsScraper
 from src.adaptation.schema_mapper import AdaptationPipeline
 from src.validation.pii_scrubber import DataScrubber
 from src.validation.distribution_audit import DatasetAuditor
-from src.deployment.kaggle_uploader import KaggleDeploymentPipeline
 
 # Configure global root logger
 logging.basicConfig(
@@ -86,12 +86,22 @@ def run_phase_3() -> bool:
         return False
 
 def run_phase_4():
-    logger.info("=== STARTING PHASE 4: DEPLOYMENT ===")
+    logger.info("=== STARTING PHASE 4: DEPLOYMENT TO /kaggle/working/ ===")
     
-    deployer = KaggleDeploymentPipeline(dataset_dir="data/processed")
-    deployer.generate_metadata()
-    deployer.execute_upload()
-    logger.info("=== PHASE 4 COMPLETE. DATASET IS LIVE ON KAGGLE. ===")
+    source_file = Path("data/processed/crisislingua_vqa_sanitized.jsonl")
+    kaggle_dir = Path("/kaggle/working")
+    
+    # Create the directory if it doesn't exist (useful for local testing)
+    kaggle_dir.mkdir(parents=True, exist_ok=True)
+    destination_file = kaggle_dir / "crisislingua_vqa_final.jsonl"
+    
+    try:
+        shutil.copy(source_file, destination_file)
+        logger.info(f"=== PHASE 4 COMPLETE. DATASET SAVED TO {destination_file} ===")
+        logger.info("You can now download the dataset directly from the Kaggle notebook output tab.")
+    except FileNotFoundError:
+        logger.error("🚨 Deployment Failed: Source dataset artifact not found. Ensure Phase 3 completed successfully.")
+        raise
 
 def main():
     logger.info("🚀 Initiating CrisisLingua-VQA Hackathon Pipeline 🚀")

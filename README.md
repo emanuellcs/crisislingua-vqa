@@ -77,7 +77,6 @@ crisislingua-vqa/
 │   │
 │   └── deployment/               # Phase 4: Final Export
 │       ├── jsonl_exporter.py     # Formats final output to JSONL
-│       └── kaggle_uploader.py    # Automates the push to Kaggle API
 │
 ├── .gitignore                    # Ignores large raw data, API keys, and virtual envs
 ├── LICENSE                       # Apache 2.0 License
