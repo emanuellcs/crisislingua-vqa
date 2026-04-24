@@ -20,7 +20,7 @@ class AdaptationPipeline:
     """
 
     def __init__(
-        self, raw_data_paths: List[str], output_dir: str = "../../data/intermediate"
+        self, raw_data_paths: List[str], output_dir: str = "data/intermediate"
     ):
         self.raw_data_paths = [Path(p) for p in raw_data_paths]
         self.output_dir = Path(output_dir)
@@ -95,8 +95,8 @@ class AdaptationPipeline:
 
 if __name__ == "__main__":
     input_files = [
-        "../../data/raw/ushahidi_raw_reports.jsonl",
-        "../../data/raw/multimodal_news_scrape.jsonl",
+        "data/raw/ushahidi_raw_reports.jsonl",
+        "data/raw/multimodal_news_scrape.jsonl",
     ]
     pipeline = AdaptationPipeline(raw_data_paths=input_files)
     pipeline.process_pipeline()

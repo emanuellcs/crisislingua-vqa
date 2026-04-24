@@ -27,8 +27,8 @@ class DataScrubber:
 
     def __init__(
         self,
-        input_file: str = "../../data/intermediate/reshaped_mapped_reports.jsonl",
-        output_dir: str = "../../data/processed",
+        input_file: str = "data/intermediate/reshaped_mapped_reports.jsonl",
+        output_dir: str = "data/processed",
     ):
         self.input_file = Path(input_file)
         self.output_dir = Path(output_dir)

@@ -21,8 +21,7 @@ class DatasetAuditor:
     MINIMUM_REPRESENTATION_THRESHOLD = 0.05  # 5% minimum per target language
 
     def __init__(
-        self,
-        dataset_file: str = "../../data/processed/crisislingua_vqa_sanitized.jsonl",
+        self, dataset_file: str = "data/processed/crisislingua_vqa_sanitized.jsonl"
     ):
         self.dataset_file = Path(dataset_file)
 
