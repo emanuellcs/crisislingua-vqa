@@ -13,10 +13,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - [%(levelname)s] - %(name)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"
 )
 logger = logging.getLogger("UshahidiAcquisition")
+
 
 class UshahidiArchiveFetcher:
     """
@@ -32,7 +32,9 @@ class UshahidiArchiveFetcher:
         # Pull the target deployments from environment variables, comma-separated
         target_urls = os.getenv("USHAHIDI_DEPLOYMENT_URLS")
         if not target_urls:
-            raise ValueError("USHAHIDI_DEPLOYMENT_URLS environment variable is not set.")
+            raise ValueError(
+                "USHAHIDI_DEPLOYMENT_URLS environment variable is not set."
+            )
         self.base_urls = [url.strip() for url in target_urls.split(",")]
 
         # Ethical, transparent bot User-Agent string
@@ -53,17 +55,25 @@ class UshahidiArchiveFetcher:
                 if response.status_code in (403, 429):
                     self.consecutive_failures += 1
                     if self.consecutive_failures >= 3:
-                        logger.critical("Circuit Breaker Tripped: Halting to prevent IP ban")
+                        logger.critical(
+                            "Circuit Breaker Tripped: Halting to prevent IP ban"
+                        )
                         sys.exit(1)
 
                     retry_after = response.headers.get("Retry-After")
                     if retry_after and retry_after.isdigit():
                         sleep_time = int(retry_after)
-                        logger.warning(f"Received {response.status_code}. Sleeping for {sleep_time}s as per Retry-After.")
+                        logger.warning(
+                            f"Received {response.status_code}. Sleeping for {sleep_time}s as per Retry-After."
+                        )
                         time.sleep(sleep_time)
                     else:
-                        sleep_time = random.uniform(5.0, 15.0) # Slightly longer on rate limit
-                        logger.warning(f"Received {response.status_code}. Sleeping for {sleep_time:.2f}s before retry.")
+                        sleep_time = random.uniform(
+                            5.0, 15.0
+                        )  # Slightly longer on rate limit
+                        logger.warning(
+                            f"Received {response.status_code}. Sleeping for {sleep_time:.2f}s before retry."
+                        )
                         time.sleep(sleep_time)
                     continue
 
@@ -74,7 +84,11 @@ class UshahidiArchiveFetcher:
 
             except requests.exceptions.RequestException as e:
                 # If we get a response but it's 403 or 429, the loop will handle it
-                if hasattr(e, 'response') and e.response is not None and e.response.status_code in (403, 429):
+                if (
+                    hasattr(e, "response")
+                    and e.response is not None
+                    and e.response.status_code in (403, 429)
+                ):
                     continue
                 logger.error(f"Network request failed for {url}: {e}")
                 raise
@@ -85,7 +99,7 @@ class UshahidiArchiveFetcher:
         try:
             response = self._safe_get(endpoint, timeout=15)
             data = response.json()
-            return {cat['id']: cat['name'] for cat in data.get('results', [])}
+            return {cat["id"]: cat["name"] for cat in data.get("results", [])}
         except Exception as e:
             logger.warning(f"Could not fetch categories from {base_url}: {e}")
             return {}
@@ -96,14 +110,16 @@ class UshahidiArchiveFetcher:
         try:
             response = self._safe_get(endpoint, timeout=10)
             data = response.json()
-            return data.get('url', '')
+            return data.get("url", "")
         except Exception as e:
             logger.warning(f"Could not fetch media {media_id}: {e}")
             return ""
 
-    def stream_deployment_posts(self, base_url: str) -> Generator[Dict[str, Any], None, None]:
+    def stream_deployment_posts(
+        self, base_url: str
+    ) -> Generator[Dict[str, Any], None, None]:
         """
-        Paginates through an Ushahidi deployment, yielding raw posts with 
+        Paginates through an Ushahidi deployment, yielding raw posts with
         resolved media and categories.
         """
         endpoint = f"{base_url.rstrip('/')}/api/v3/posts"
@@ -118,10 +134,10 @@ class UshahidiArchiveFetcher:
 
         while True:
             params = {
-                "limit": limit, 
+                "limit": limit,
                 "offset": offset,
                 "status": "published",
-                "tag": "disaster|earthquake|flood"
+                "tag": "disaster|earthquake|flood",
             }
             try:
                 # We use _safe_get which already handles the 3-8s jitter
@@ -133,24 +149,30 @@ class UshahidiArchiveFetcher:
 
             results = data.get("results", [])
             if not results:
-                logger.info(f"Reached end of pagination for {base_url}. Total fetched: {total_fetched}")
+                logger.info(
+                    f"Reached end of pagination for {base_url}. Total fetched: {total_fetched}"
+                )
                 break
 
             for post in results:
                 # Eagerly map category names
-                post_cat_ids = post.get('categories', [])
-                post['category_names'] = [categories.get(cid, f"Unknown({cid})") for cid in post_cat_ids]
+                post_cat_ids = post.get("categories", [])
+                post["category_names"] = [
+                    categories.get(cid, f"Unknown({cid})") for cid in post_cat_ids
+                ]
 
                 # Resolve media URLs for VQA pairs
                 media_urls = []
-                for media_ref in post.get('media', []):
-                    m_id = media_ref if isinstance(media_ref, int) else media_ref.get('id')
+                for media_ref in post.get("media", []):
+                    m_id = (
+                        media_ref if isinstance(media_ref, int) else media_ref.get("id")
+                    )
                     if m_id:
                         # get_media_url also uses _safe_get with jitter
                         m_url = self.get_media_url(base_url, m_id)
                         if m_url:
                             media_urls.append(m_url)
-                post['media_urls'] = media_urls
+                post["media_urls"] = media_urls
 
                 yield post
                 total_fetched += 1
@@ -162,13 +184,14 @@ class UshahidiArchiveFetcher:
         logger.info(f"Starting acquisition pipeline. Target file: {self.output_file}")
 
         # Open in append mode so if the script crashes, data isn't lost
-        with open(self.output_file, 'a', encoding='utf-8') as f:
+        with open(self.output_file, "a", encoding="utf-8") as f:
             for url in self.base_urls:
                 for raw_post in self.stream_deployment_posts(url):
                     # Write immediately to disk
-                    f.write(json.dumps(raw_post, ensure_ascii=False) + '\n')
+                    f.write(json.dumps(raw_post, ensure_ascii=False) + "\n")
 
         logger.info("Ushahidi acquisition pipeline completed successfully.")
+
 
 if __name__ == "__main__":
     fetcher = UshahidiArchiveFetcher()

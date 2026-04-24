@@ -3,17 +3,17 @@ from typing import List, Dict, Any
 from .adaptive_client import AdaptiveDataClient
 
 logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - [%(levelname)s] - %(name)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"
 )
 logger = logging.getLogger("IntentExtractor")
 
+
 class IntentExtractor:
     """
-    Dedicated module for extracting formalized intents from code-switched 
+    Dedicated module for extracting formalized intents from code-switched
     and highly informal localized text via the Adaptive Data platform.
     """
-    
+
     def __init__(self, client: AdaptiveDataClient = None):
         self.client = client or AdaptiveDataClient()
 
@@ -24,9 +24,9 @@ class IntentExtractor:
         """
         if not batch:
             return []
-            
+
         logger.info(f"Extracting intents from a batch of {len(batch)} records...")
-        
+
         try:
             intent_batch = self.client.reshape_batch(batch, operation="extract_intent")
             logger.info(f"Intent extraction complete for {len(intent_batch)} records.")
