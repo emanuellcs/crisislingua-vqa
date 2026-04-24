@@ -5,43 +5,50 @@ from pathlib import Path
 from typing import Dict, List, Any
 import requests
 from dotenv import load_dotenv
-from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from tenacity import (
+    retry,
+    wait_exponential,
+    stop_after_attempt,
+    retry_if_exception_type,
+)
 
 load_dotenv()
 
 logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - [%(levelname)s] - %(name)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"
 )
 logger = logging.getLogger("TWB_Ingestor")
 
+
 class GlossaryAcquisitionError(Exception):
     """Custom exception for glossary extraction failures."""
+
     pass
+
 
 class TWBGlossaryIngestor:
     """
-    Production client for extracting structured disaster terminology 
-    from CLEAR Global's public Language Use Data Platform (LUDP) and 
+    Production client for extracting structured disaster terminology
+    from CLEAR Global's public Language Use Data Platform (LUDP) and
     web scraping of their terminology glossaries.
     """
-    
+
     # Target ISO 639-3 codes for LUDP and regional filtering
     TARGET_LANG_CODES = ["swa", "amh", "tgl", "ceb", "mar", "bho"]
     LOCATION_CODES = ["KEN", "PHL", "IND"]
-    
+
     def __init__(self, output_dir: str = "../../data/intermediate"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.output_file = self.output_dir / "twb_heuristic_keywords.json"
-        
+
         self.ludp_base_url = "https://ludp.clearglobal.org/public/location/"
         self.glossary_base_url = "https://glossaries.clearglobal.org/"
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=10),
         stop=stop_after_attempt(5),
-        retry=retry_if_exception_type(requests.exceptions.RequestException)
+        retry=retry_if_exception_type(requests.exceptions.RequestException),
     )
     def fetch_ludp_data(self, location_code: str) -> List[Dict[str, Any]]:
         """
@@ -51,7 +58,7 @@ class TWBGlossaryIngestor:
         url = f"{self.ludp_base_url}{location_code}"
         params = {"page": 0, "page_size": 500}
         logger.info(f"Querying LUDP for location: {location_code}")
-        
+
         response = requests.get(url, params=params, timeout=15)
         response.raise_for_status()
         # The LUDP response contains results in a 'results' key or similar structure
@@ -60,20 +67,20 @@ class TWBGlossaryIngestor:
 
     def scrape_glossary_site(self, category: str) -> Dict[str, List[str]]:
         """
-        Scrapes static HTML glossaries from Clear Global for localized 
+        Scrapes static HTML glossaries from Clear Global for localized
         disaster terminology.
         """
         url = f"{self.glossary_base_url}{category}/"
         logger.info(f"Scraping terminology from glossary: {url}")
         scraped_data = {lang: [] for lang in self.TARGET_LANG_CODES}
-        
+
         try:
             response = requests.get(url, timeout=15)
             response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
+            soup = BeautifulSoup(response.text, "html.parser")
+
             # Target table rows or definition lists containing localized terms
-            for row in soup.find_all(['tr', 'div', 'li']):
+            for row in soup.find_all(["tr", "div", "li"]):
                 text = row.get_text().lower()
                 # Heuristic: if a row mentions a target language, extract the term
                 for lang in self.TARGET_LANG_CODES:
@@ -84,14 +91,14 @@ class TWBGlossaryIngestor:
                             scraped_data[lang].append(words[0])
         except Exception as e:
             logger.warning(f"Glossary scraping for {category} failed: {e}")
-            
+
         return scraped_data
 
     def execute_pipeline(self):
         """Runs the multi-source acquisition pipeline."""
         logger.info("Starting TWB glossary acquisition pipeline...")
         combined_keywords = {lang: [] for lang in self.TARGET_LANG_CODES}
-        
+
         # 1. Harvest from LUDP
         for loc in self.LOCATION_CODES:
             try:
@@ -117,15 +124,16 @@ class TWBGlossaryIngestor:
             "metadata": {
                 "source": "LUDP + Clear Global Web Scraping",
                 "target_languages": self.TARGET_LANG_CODES,
-                "timestamp": json.dumps(True) # Just a placeholder for valid JSON
+                "timestamp": json.dumps(True),  # Just a placeholder for valid JSON
             },
-            "keywords": combined_keywords
+            "keywords": combined_keywords,
         }
-        
-        with open(self.output_file, 'w', encoding='utf-8') as f:
+
+        with open(self.output_file, "w", encoding="utf-8") as f:
             json.dump(final_payload, f, ensure_ascii=False, indent=4)
-            
+
         logger.info(f"TWB acquisition complete. Saved to {self.output_file}")
+
 
 if __name__ == "__main__":
     ingestor = TWBGlossaryIngestor()

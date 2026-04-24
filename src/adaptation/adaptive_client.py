@@ -12,9 +12,12 @@ load_dotenv()
 
 logger = logging.getLogger("AdaptiveClient")
 
+
 class AdaptiveDataError(Exception):
     """Custom exception for Adaptive Data platform failures."""
+
     pass
+
 
 class AdaptiveDataClient:
     """
@@ -25,8 +28,12 @@ class AdaptiveDataClient:
 
     def __init__(self):
         # Aligning with official SDK defaults and environment variable naming
-        self.api_key = os.getenv("ADAPTION_API_KEY") or os.getenv("ADAPTIVE_DATA_API_KEY")
-        self.base_url = os.getenv("ADAPTION_BASE_URL") or os.getenv("ADAPTIVE_DATA_ENDPOINT")
+        self.api_key = os.getenv("ADAPTION_API_KEY") or os.getenv(
+            "ADAPTIVE_DATA_API_KEY"
+        )
+        self.base_url = os.getenv("ADAPTION_BASE_URL") or os.getenv(
+            "ADAPTIVE_DATA_ENDPOINT"
+        )
 
         if not self.api_key:
             raise ValueError("ADAPTION_API_KEY is missing from environment variables.")
@@ -36,10 +43,10 @@ class AdaptiveDataClient:
 
         # Initialize client with manual retry management for strict policy compliance
         self.client = Adaption(
-            api_key=self.api_key, 
+            api_key=self.api_key,
             base_url=self.base_url,
-            max_retries=0, # Manual handling to satisfy circuit breaker requirement
-            default_headers={"User-Agent": self.user_agent}
+            max_retries=0,  # Manual handling to satisfy circuit breaker requirement
+            default_headers={"User-Agent": self.user_agent},
         )
 
     def _execute_with_policy(self, func, *args, **kwargs):
@@ -55,18 +62,24 @@ class AdaptiveDataClient:
                 if e.status_code in (403, 429):
                     self.consecutive_failures += 1
                     if self.consecutive_failures >= 3:
-                        logger.critical("Circuit Breaker Tripped (Adaption SDK): Halting to prevent IP ban")
+                        logger.critical(
+                            "Circuit Breaker Tripped (Adaption SDK): Halting to prevent IP ban"
+                        )
                         sys.exit(1)
 
                     # Extract Retry-After if available in the response headers
                     retry_after = e.response.headers.get("Retry-After")
                     if retry_after and retry_after.isdigit():
                         sleep_time = int(retry_after)
-                        logger.warning(f"Adaption API {e.status_code}. Sleeping for {sleep_time}s.")
+                        logger.warning(
+                            f"Adaption API {e.status_code}. Sleeping for {sleep_time}s."
+                        )
                         time.sleep(sleep_time)
                     else:
                         sleep_time = random.uniform(5.0, 15.0)
-                        logger.warning(f"Adaption API {e.status_code}. Sleeping for {sleep_time:.2f}s before retry.")
+                        logger.warning(
+                            f"Adaption API {e.status_code}. Sleeping for {sleep_time:.2f}s before retry."
+                        )
                         time.sleep(sleep_time)
                     continue
 
@@ -77,19 +90,23 @@ class AdaptiveDataClient:
                 self.consecutive_failures = 0
                 raise
 
-    def reshape_batch(self, batch: List[Dict[str, Any]], operation: str) -> List[Dict[str, Any]]:
+    def reshape_batch(
+        self, batch: List[Dict[str, Any]], operation: str
+    ) -> List[Dict[str, Any]]:
         """
         Sends a batch of raw records to the Adaptive Data platform using the SDK.
         Maps the requested workflow (ingest, adapt, export) to the SDK's datasets resource.
         """
-        logger.info(f"Processing batch of {len(batch)} records for operation: '{operation}'")
+        logger.info(
+            f"Processing batch of {len(batch)} records for operation: '{operation}'"
+        )
 
         try:
             # 1. Ingest: Create a temporary dataset from the batch
             dataset = self._execute_with_policy(
                 self.client.datasets.create,
                 records=batch,
-                metadata={"source": "CrisisLingua-VQA", "operation": operation}
+                metadata={"source": "CrisisLingua-VQA", "operation": operation},
             )
             dataset_id = dataset.id
 
@@ -100,15 +117,13 @@ class AdaptiveDataClient:
                 recipe=operation,
                 config={
                     "strict_schema_enforcement": True,
-                    "multilingual_projection": True
-                }
+                    "multilingual_projection": True,
+                },
             )
 
             # 3. Export: Download the reshaped records
             reshaped_records = self._execute_with_policy(
-                self.client.datasets.download,
-                dataset_id=dataset_id,
-                format="jsonl"
+                self.client.datasets.download, dataset_id=dataset_id, format="jsonl"
             )
 
             # Reset failure count on full workflow success
