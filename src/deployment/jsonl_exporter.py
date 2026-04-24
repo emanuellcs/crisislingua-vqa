@@ -16,7 +16,7 @@ class JSONLExporter:
     """
 
     def __init__(
-        self, output_file: str = "../../data/processed/crisislingua_vqa_final.jsonl"
+        self, output_file: str = "data/processed/crisislingua_vqa_final.jsonl"
     ):
         self.output_file = Path(output_file)
         self.output_file.parent.mkdir(parents=True, exist_ok=True)

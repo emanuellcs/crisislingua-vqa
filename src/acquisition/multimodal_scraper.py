@@ -30,8 +30,8 @@ class MultimodalNewsScraper:
 
     def __init__(
         self,
-        heuristics_path: str = "../../data/intermediate/twb_heuristic_keywords.json",
-        output_dir: str = "../../data/raw",
+        heuristics_path: str = "data/intermediate/twb_heuristic_keywords.json",
+        output_dir: str = "data/raw",
     ):
         self.heuristics_file = Path(heuristics_path)
         self.output_dir = Path(output_dir)
@@ -132,7 +132,7 @@ class MultimodalNewsScraper:
             for p in decompressed.splitlines()
             if p.strip()
         ]
-        return paths[:5]  # Limit to top 5 segments for this session
+        return paths[:50]  # Increased limit for better coverage of sparse disaster data
 
     def extract_vqa_data(self, html: str, url: str) -> Optional[Dict[str, Any]]:
         """Parses HTML for OpenGraph metadata to build VQA pairs."""

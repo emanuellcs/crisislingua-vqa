@@ -24,7 +24,7 @@ class UshahidiArchiveFetcher:
     Handles pagination, rate limiting, and exponential backoff.
     """
 
-    def __init__(self, output_dir: str = "../../data/raw"):
+    def __init__(self, output_dir: str = "data/raw"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.output_file = self.output_dir / "ushahidi_raw_reports.jsonl"
@@ -98,7 +98,13 @@ class UshahidiArchiveFetcher:
         endpoint = f"{base_url.rstrip('/')}/api/v3/categories"
         try:
             response = self._safe_get(endpoint, timeout=15)
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError:
+                logger.warning(
+                    f"Endpoint {endpoint} returned non-JSON response (likely HTML). Skipping categories."
+                )
+                return {}
             return {cat["id"]: cat["name"] for cat in data.get("results", [])}
         except Exception as e:
             logger.warning(f"Could not fetch categories from {base_url}: {e}")
@@ -109,7 +115,13 @@ class UshahidiArchiveFetcher:
         endpoint = f"{base_url.rstrip('/')}/api/v3/media/{media_id}"
         try:
             response = self._safe_get(endpoint, timeout=10)
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError:
+                logger.warning(
+                    f"Media endpoint {endpoint} returned non-JSON response. Skipping media {media_id}."
+                )
+                return ""
             return data.get("url", "")
         except Exception as e:
             logger.warning(f"Could not fetch media {media_id}: {e}")
@@ -142,7 +154,13 @@ class UshahidiArchiveFetcher:
             try:
                 # We use _safe_get which already handles the 3-8s jitter
                 response = self._safe_get(endpoint, params=params, timeout=15)
-                data = response.json()
+                try:
+                    data = response.json()
+                except ValueError:
+                    logger.error(
+                        f"Endpoint {endpoint} returned non-JSON response (likely HTML/Cloudflare). Skipping deployment."
+                    )
+                    break
             except Exception as e:
                 logger.error(f"Critical failure connecting to {endpoint}: {e}")
                 break

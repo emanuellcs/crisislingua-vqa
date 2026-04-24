@@ -11,6 +11,7 @@ from tenacity import (
     stop_after_attempt,
     retry_if_exception_type,
 )
+from bs4 import BeautifulSoup
 
 load_dotenv()
 
@@ -37,7 +38,12 @@ class TWBGlossaryIngestor:
     TARGET_LANG_CODES = ["swa", "amh", "tgl", "ceb", "mar", "bho"]
     LOCATION_CODES = ["KEN", "PHL", "IND"]
 
-    def __init__(self, output_dir: str = "../../data/intermediate"):
+    FALLBACK_KEYWORDS = {
+        "tgl": ["lindol", "bagyo", "baha", "sakuna", "tulong", "sunog", "paglikas"],
+        "ceb": ["linog", "bagyo", "baha", "disastre", "tabang", "sunog", "bakwit"],
+    }
+
+    def __init__(self, output_dir: str = "data/intermediate"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.output_file = self.output_dir / "twb_heuristic_keywords.json"
@@ -113,12 +119,31 @@ class TWBGlossaryIngestor:
                 logger.error(f"Failed to fetch LUDP data for {loc}: {e}")
 
         # 2. Harvest from Web Scraping
-        for category in ["disaster", "covid19"]:
+        for category in [
+            "covid19",
+            "wfp",
+            "bangladesh",
+            "myanmar",
+            "drc",
+            "psea",
+            "psea_sa",
+            "oxfam",
+            "iom",
+            "mozambique",
+            "refcrisis",
+            "tigray",
+        ]:
             scraped = self.scrape_glossary_site(category)
             for lang, terms in scraped.items():
                 for t in terms:
                     if t not in combined_keywords[lang]:
                         combined_keywords[lang].append(t)
+
+        # 3. Apply Fallbacks for dropped connections (PHL)
+        for lang, fallbacks in self.FALLBACK_KEYWORDS.items():
+            if not combined_keywords.get(lang):
+                logger.info(f"Injecting fallback keywords for {lang}")
+                combined_keywords[lang] = fallbacks
 
         final_payload = {
             "metadata": {
