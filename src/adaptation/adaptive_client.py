@@ -5,7 +5,8 @@ import random
 import logging
 import json
 import tempfile
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 from adaption import Adaption, APIStatusError
 from dotenv import load_dotenv
 
@@ -32,9 +33,10 @@ class AdaptiveDataClient:
         self.api_key = os.getenv("ADAPTION_API_KEY") or os.getenv(
             "ADAPTIVE_DATA_API_KEY"
         )
-        self.base_url = os.getenv("ADAPTION_BASE_URL") or os.getenv(
+        raw_base_url = os.getenv("ADAPTION_BASE_URL") or os.getenv(
             "ADAPTIVE_DATA_ENDPOINT"
         )
+        self.base_url = self._normalize_base_url(raw_base_url)
 
         if not self.api_key:
             raise ValueError("ADAPTION_API_KEY is missing from environment variables.")
@@ -49,6 +51,34 @@ class AdaptiveDataClient:
             max_retries=0,  # Manual handling to satisfy circuit breaker requirement
             default_headers={"User-Agent": self.user_agent},
         )
+
+    @staticmethod
+    def _normalize_base_url(base_url: Optional[str]) -> Optional[str]:
+        """
+        The generated SDK owns the /api/v1 path. Older project configs included
+        /v1 or /api/v1 in ADAPTION_BASE_URL, which makes the SDK POST to
+        /v1/api/v1/datasets or /api/v1/api/v1/datasets.
+        """
+        if not base_url or not base_url.strip():
+            return None
+
+        candidate = base_url.strip().rstrip("/")
+        parsed = urlsplit(candidate)
+        normalized_path = parsed.path.rstrip("/")
+
+        if normalized_path in {"/v1", "/api/v1"}:
+            normalized = urlunsplit(
+                (parsed.scheme, parsed.netloc, "", parsed.query, parsed.fragment)
+            ).rstrip("/")
+            logger.warning(
+                "Normalizing ADAPTION_BASE_URL from %s to %s because the SDK "
+                "appends /api/v1 endpoint paths itself.",
+                base_url,
+                normalized,
+            )
+            return normalized
+
+        return candidate
 
     def _execute_with_policy(self, func, *args, **kwargs):
         """Wraps SDK calls with the required circuit breaker and rate limiting policies."""
