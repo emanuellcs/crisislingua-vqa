@@ -3,9 +3,10 @@ import sys
 import time
 import random
 import logging
+import json
+import tempfile
 from typing import List, Dict, Any
 from adaption import Adaption, APIStatusError
-from tenacity import retry, wait_exponential, stop_after_attempt
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -90,6 +91,82 @@ class AdaptiveDataClient:
                 self.consecutive_failures = 0
                 raise
 
+    @staticmethod
+    def _record_prompt(record: Dict[str, Any]) -> str:
+        """Builds a stable prompt column for the Adaption augmentation API."""
+        for key in ("prompt", "text", "title", "content", "description", "message"):
+            value = record.get(key)
+            if value:
+                return str(value)
+        return json.dumps(record, ensure_ascii=False, sort_keys=True)
+
+    def _write_batch_jsonl(self, batch: List[Dict[str, Any]], operation: str) -> str:
+        """Serializes an in-memory batch to the SDK's supported JSONL file upload path."""
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".jsonl",
+            prefix=f"crisislingua_{operation}_",
+            encoding="utf-8",
+            delete=False,
+        )
+        with tmp:
+            for record in batch:
+                sdk_record = dict(record)
+                sdk_record["__adaptive_operation"] = operation
+                sdk_record["__adaptive_prompt"] = self._record_prompt(record)
+                sdk_record["__source_record"] = json.dumps(
+                    record, ensure_ascii=False, sort_keys=True
+                )
+                tmp.write(json.dumps(sdk_record, ensure_ascii=False) + "\n")
+        return tmp.name
+
+    @staticmethod
+    def _parse_jsonl_payload(payload: Any) -> List[Dict[str, Any]]:
+        """Normalizes SDK download payloads into a list of dictionaries."""
+        if isinstance(payload, list):
+            return payload
+        if not isinstance(payload, str):
+            raise TypeError(f"Unsupported download payload type: {type(payload)!r}")
+
+        records = []
+        for line in payload.splitlines():
+            if line.strip():
+                records.append(json.loads(line))
+        return records
+
+    @staticmethod
+    def _strip_internal_columns(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        internal_keys = {
+            "__adaptive_operation",
+            "__adaptive_prompt",
+            "__source_record",
+        }
+        return [
+            {key: value for key, value in record.items() if key not in internal_keys}
+            for record in records
+        ]
+
+    @staticmethod
+    def _operation_blueprint(operation: str) -> str:
+        blueprints = {
+            "filter_noise": (
+                "Keep crisis-relevant humanitarian records and remove irrelevant "
+                "social chatter. Preserve useful source fields."
+            ),
+            "extract_intent": (
+                "Normalize multilingual or code-switched crisis reports into clear "
+                "humanitarian intents while preserving source context."
+            ),
+            "map_fema_esf": (
+                "Map crisis reports to FEMA ESF and MIRA-style humanitarian response "
+                "categories. Preserve the original source context."
+            ),
+        }
+        return blueprints.get(
+            operation,
+            f"Apply the CrisisLingua-VQA adaptation operation '{operation}' to each record.",
+        )
+
     def reshape_batch(
         self, batch: List[Dict[str, Any]], operation: str
     ) -> List[Dict[str, Any]]:
@@ -102,34 +179,67 @@ class AdaptiveDataClient:
         )
 
         try:
-            # 1. Ingest: Create a temporary dataset from the batch
+            # 1. Ingest: the SDK accepts datasets through file sources, not records=.
+            upload_path = self._write_batch_jsonl(batch, operation)
             dataset = self._execute_with_policy(
-                self.client.datasets.create,
-                records=batch,
-                metadata={"source": "CrisisLingua-VQA", "operation": operation},
+                self.client.datasets.upload_file,
+                upload_path,
+                name=f"CrisisLingua-VQA-{operation}-{int(time.time())}",
             )
-            dataset_id = dataset.id
+            dataset_id = dataset.dataset_id
 
-            # 2. Adapt: Run the specific adaptation recipe/operation
-            job = self._execute_with_policy(
+            self._execute_with_policy(
+                self.client.datasets.wait_for_completion,
+                dataset_id,
+                timeout=1800.0,
+            )
+
+            # 2. Adapt: run the augmentation pipeline with SDK-supported params.
+            self._execute_with_policy(
                 self.client.datasets.run,
-                dataset_id=dataset_id,
-                recipe=operation,
-                config={
-                    "strict_schema_enforcement": True,
-                    "multilingual_projection": True,
+                dataset_id,
+                column_mapping={
+                    "prompt": "__adaptive_prompt",
+                    "context": ["__source_record", "__adaptive_operation"],
+                },
+                recipe_specification={
+                    "version": "1",
+                    "recipes": {
+                        "deduplication": operation == "filter_noise",
+                        "prompt_rephrase": operation
+                        in {"extract_intent", "map_fema_esf"},
+                    },
+                },
+                brand_controls={
+                    "length": "concise",
+                    "hallucination_mitigation": True,
+                    "blueprint": self._operation_blueprint(operation),
                 },
             )
 
-            # 3. Export: Download the reshaped records
-            reshaped_records = self._execute_with_policy(
-                self.client.datasets.download, dataset_id=dataset_id, format="jsonl"
+            self._execute_with_policy(
+                self.client.datasets.wait_for_completion,
+                dataset_id,
+                timeout=1800.0,
+            )
+
+            # 3. Export: Download the reshaped records.
+            payload = self._execute_with_policy(
+                self.client.datasets.download, dataset_id, file_format="jsonl"
             )
 
             # Reset failure count on full workflow success
             self.consecutive_failures = 0
-            return reshaped_records
+            return self._strip_internal_columns(self._parse_jsonl_payload(payload))
 
         except Exception as e:
             logger.error(f"Adaptive Data SDK operation failed: {e}")
             raise AdaptiveDataError(f"Failed to reshape batch via SDK: {e}")
+        finally:
+            if "upload_path" in locals():
+                try:
+                    os.unlink(upload_path)
+                except OSError:
+                    logger.warning(
+                        f"Could not remove temporary upload file: {upload_path}"
+                    )
