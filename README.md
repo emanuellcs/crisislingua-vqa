@@ -72,7 +72,8 @@ USHAHIDI_DEPLOYMENT_URLS="https://freddymalawi.api.ushahidi.io,https://tclirp.ap
 
 # Adaptive Data Platform
 ADAPTION_API_KEY="your_api_key_here"
-ADAPTION_BASE_URL="https://api.adaptionlabs.ai/v1"
+# Optional; omit to use the SDK default. Do not include /v1 or /api/v1.
+ADAPTION_BASE_URL="https://api.adaptionlabs.ai"
 ```
 
 Ushahidi Cloud map/front-end hosts such as `https://example.ushahidi.io` may return the HTML single-page application at `/api/v3/posts`. Use the API host pattern instead: `https://example.api.ushahidi.io`.
