@@ -145,7 +145,7 @@ class UshahidiArchiveFetcher:
         self, api_endpoint: str, limit: int = 8
     ) -> List[Tuple[str, str]]:
         """Find archived JSON snapshots for an API endpoint when the live site is blocked."""
-        cdx_endpoint = "https://web.archive.org/cdx"
+        cdx_endpoint = "https://web.archive.org/cdx/search/cdx"
         params = {
             "url": f"{api_endpoint}*",
             "output": "json",
@@ -155,13 +155,27 @@ class UshahidiArchiveFetcher:
             "limit": str(limit),
             "sort": "reverse",
         }
-        try:
-            data = self._fetch_json(cdx_endpoint, params=params, timeout=20)
-        except Exception as exc:
-            logger.warning(
-                f"Could not query Internet Archive for {api_endpoint}: {exc}"
-            )
-            return []
+        max_attempts = 3
+        data: Union[Dict[str, Any], List[Any]] = []
+        for attempt in range(1, max_attempts + 1):
+            try:
+                data = self._fetch_json(cdx_endpoint, params=params, timeout=(10, 90))
+                break
+            except Exception as exc:
+                if attempt == max_attempts:
+                    logger.warning(
+                        f"Could not query Internet Archive for {api_endpoint} "
+                        f"after {max_attempts} attempts: {exc}"
+                    )
+                    return []
+
+                sleep_time = min(2**attempt, 30)
+                logger.warning(
+                    f"Internet Archive CDX query failed for {api_endpoint} "
+                    f"(attempt {attempt}/{max_attempts}): {exc}. "
+                    f"Retrying in {sleep_time}s."
+                )
+                time.sleep(sleep_time)
 
         rows = data[1:] if isinstance(data, list) and data else []
         snapshots = []
