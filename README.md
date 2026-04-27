@@ -32,9 +32,12 @@ The pipeline is divided into four distinct phases, now fully integrated with pro
 
 Transitioned from raw HTTP calls to the official **Adaptive Data Python SDK** for high-performance data reshaping:
 
-- **`client.ingest()`**: Batch upload of raw multimodal signals.
-- **`client.adapt()`**: Executes noise filtering, code-switch normalization, and mapping to **FEMA ESF** / **MIRA** frameworks.
-- **`client.export()`**: Generates optimized JSONL artifacts for downstream model training.
+- **`client.datasets.upload_file()`**: Batch upload of JSONL records to Adaption as a file-backed dataset.
+- **`client.datasets.get_status()`**: Polls until uploaded ingestion exposes `row_count`, meaning the dataset is ready for programmatic configuration.
+- **`client.datasets.run()`**: Supplies the required `column_mapping`, recipe specification, and brand controls so the dataset bypasses manual UI configuration and starts processing headlessly.
+- **`client.datasets.wait_for_completion()` / `download()`**: Waits for the adaptation run to finish and exports optimized JSONL records for downstream training.
+
+The local adaptation pipeline runs three sequential operations: noise filtering, intent extraction, and mapping to **FEMA ESF** / **MIRA** frameworks.
 
 ### Phase 3: Validation
 
@@ -43,7 +46,7 @@ Transitioned from raw HTTP calls to the official **Adaptive Data Python SDK** fo
 
 ### Phase 4: Deployment
 
-- Final export to machine-ready `JSONL` formats for submission to Kaggle and Hugging Face.
+- Final export to machine-ready `JSONL` format. The orchestrator copies the sanitized artifact to `/kaggle/working/crisislingua_vqa_final.jsonl` for Kaggle notebook submission.
 
 ---
 
@@ -86,7 +89,13 @@ pip install -r requirements.txt
 
 ### 3. Execution Flow
 
-Run the pipeline components in sequence:
+Run the complete orchestrated pipeline:
+
+```bash
+python main.py
+```
+
+Or run the pipeline components in sequence:
 
 ```bash
 # Generate heuristic keywords from TWB
@@ -97,8 +106,14 @@ python src/acquisition/multimodal_scraper.py
 python src/acquisition/ushahidi_api.py
 
 # Reshape data via Adaptive Data Platform
-python src/adaptation/adaptive_client.py
+python src/adaptation/schema_mapper.py
+
+# Scrub PII and audit language distribution
+python src/validation/pii_scrubber.py
+python src/validation/distribution_audit.py
 ```
+
+Phase 4 deployment is currently handled by `main.py`, which copies the validated JSONL artifact into `/kaggle/working/`.
 
 ---
 
@@ -113,9 +128,13 @@ src/
 ├── adaptation/
 │   ├── adaptive_client.py    # Official SDK integration
 │   ├── filter_noise.py       # Logic for cleaning social chatter
+│   ├── intent_extractor.py   # Code-switched intent normalization
 │   └── schema_mapper.py      # FEMA/MIRA framework mapping
-├── validation/               # PII scrubbing & audits
-└── deployment/               # JSONL export logic
+├── validation/
+│   ├── pii_scrubber.py       # Regex-based PII redaction
+│   └── distribution_audit.py # Language balance audit
+└── deployment/
+    └── jsonl_exporter.py     # JSONL export helper
 ```
 
 ## ⚖️ License

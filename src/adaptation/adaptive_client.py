@@ -51,6 +51,7 @@ class AdaptiveDataClient:
             max_retries=0,  # Manual handling to satisfy circuit breaker requirement
             default_headers={"User-Agent": self.user_agent},
         )
+        self.ingestion_timeout_seconds = 1800.0
 
     @staticmethod
     def _normalize_base_url(base_url: Optional[str]) -> Optional[str]:
@@ -120,6 +121,59 @@ class AdaptiveDataClient:
             except Exception:
                 self.consecutive_failures = 0
                 raise
+
+    def _wait_for_ingestion_ready(
+        self,
+        dataset_id: str,
+        *,
+        timeout: float,
+        initial_interval: float = 2.0,
+        max_interval: float = 30.0,
+        backoff_factor: float = 2.0,
+    ):
+        """
+        Waits for uploaded file ingestion to expose row_count.
+
+        The SDK's wait_for_completion() waits for terminal run states
+        (succeeded/failed). Immediately after upload, datasets can stay pending
+        while the platform waits for the run column_mapping; row_count is the
+        documented signal that ingestion has finished and the dataset can be
+        configured with datasets.run().
+        """
+        started_at = time.monotonic()
+        interval = initial_interval
+        last_status = None
+
+        while True:
+            status = self._execute_with_policy(
+                self.client.datasets.get_status, dataset_id
+            )
+            last_status = status.status
+
+            if status.error:
+                raise AdaptiveDataError(status.error.message)
+
+            if status.status == "failed":
+                raise AdaptiveDataError(
+                    f"Dataset ingestion failed for {dataset_id}: {status.error}"
+                )
+
+            if status.row_count is not None:
+                logger.info(
+                    "Dataset %s ingestion ready with %s rows.",
+                    dataset_id,
+                    status.row_count,
+                )
+                return status
+
+            if time.monotonic() - started_at >= timeout:
+                raise TimeoutError(
+                    f"Timed out after {timeout}s waiting for dataset ingestion; "
+                    f"last status: {last_status}"
+                )
+
+            time.sleep(interval)
+            interval = min(interval * backoff_factor, max_interval)
 
     @staticmethod
     def _record_prompt(record: Dict[str, Any]) -> str:
@@ -218,13 +272,13 @@ class AdaptiveDataClient:
             )
             dataset_id = dataset.dataset_id
 
-            self._execute_with_policy(
-                self.client.datasets.wait_for_completion,
+            self._wait_for_ingestion_ready(
                 dataset_id,
-                timeout=1800.0,
+                timeout=self.ingestion_timeout_seconds,
             )
 
-            # 2. Adapt: run the augmentation pipeline with SDK-supported params.
+            # 2. Configure + Adapt: datasets.run validates column_mapping and
+            # starts the augmentation pipeline, bypassing the manual UI step.
             self._execute_with_policy(
                 self.client.datasets.run,
                 dataset_id,

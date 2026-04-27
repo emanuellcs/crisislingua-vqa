@@ -16,8 +16,14 @@ class DatasetAuditor:
     criteria for under-resourced languages.
     """
 
-    # Our target languages from the architectural blueprint
-    TARGET_LANGS = {"sw", "am", "tl", "ceb", "mr", "bho"}
+    # Canonical target languages from the architectural blueprint (ISO 639-3).
+    TARGET_LANGS = {"swa", "amh", "tgl", "ceb", "mar", "bho"}
+    LANGUAGE_ALIASES = {
+        "sw": "swa",
+        "am": "amh",
+        "tl": "tgl",
+        "mr": "mar",
+    }
     MINIMUM_REPRESENTATION_THRESHOLD = 0.05  # 5% minimum per target language
 
     def __init__(
@@ -45,7 +51,8 @@ class DatasetAuditor:
                 lang = record.get("language_inferred", "unknown").lower()
 
                 # Handle code-switched labels (e.g., "sw-en")
-                primary_lang = lang.split("-")[0]
+                lang_prefix = lang.split("-")[0]
+                primary_lang = self.LANGUAGE_ALIASES.get(lang_prefix, lang_prefix)
                 lang_counts[primary_lang] += 1
                 total_records += 1
 
