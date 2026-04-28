@@ -32,7 +32,7 @@ class AdaptationPipeline:
         self.noise_filter = NoiseFilter(client=self.client)
         self.intent_extractor = IntentExtractor(client=self.client)
 
-        self.batch_size = 50
+        self.batch_size = 10000
 
     def stream_raw_data(self) -> Generator[Dict[str, Any], None, None]:
         """Yields records from raw JSONL files one by one to save memory."""
