@@ -476,16 +476,17 @@ class AdaptiveDataClient:
             "context": ["__source_record", "__adaptive_operation"],
         }
 
-    async def _upload_file_streaming_async(
+    async def _upload_file_s3_compatible_async(
         self, path: Path, *, dataset_name: str
     ) -> Dict[str, Any]:
         """
-        Stream a JSONL file through the lower-level SDK upload workflow.
+        Upload a JSONL file through the lower-level SDK upload workflow.
 
-        The official upload_file() helper reads the whole file into memory; this
-        version keeps memory bounded by upload_chunk_bytes.
+        S3 presigned PUT URLs reject HTTP/1.1 chunked request bodies with
+        501 NotImplemented. Passing an async generator to httpx creates an
+        unknown-length body, so use the shard's bounded bytes and an explicit
+        Content-Length instead.
         """
-        file_size = path.stat().st_size
         create_resp = await self._execute_async_with_policy(
             self.async_client.datasets.create,
             source={
@@ -500,24 +501,18 @@ class AdaptiveDataClient:
                 "Server did not return upload instructions for file source"
             )
 
-        sha256 = hashlib.sha256()
-
-        async def _file_chunks():
-            with open(path, "rb") as file_obj:
-                while True:
-                    chunk = await asyncio.to_thread(
-                        file_obj.read, self.upload_chunk_bytes
-                    )
-                    if not chunk:
-                        break
-                    sha256.update(chunk)
-                    yield chunk
+        file_bytes = await asyncio.to_thread(path.read_bytes)
+        file_size = len(file_bytes)
+        sha256_hex = hashlib.sha256(file_bytes).hexdigest()
 
         async with httpx.AsyncClient(timeout=None) as http_client:
             response = await http_client.put(
                 create_resp.upload_instructions.url,
-                content=_file_chunks(),
-                headers={"User-Agent": self.user_agent},
+                content=file_bytes,
+                headers={
+                    "Content-Length": str(file_size),
+                    "User-Agent": self.user_agent,
+                },
             )
             response.raise_for_status()
 
@@ -525,12 +520,12 @@ class AdaptiveDataClient:
             self.async_client.datasets.upload.complete_by_id,
             create_resp.dataset_id,
             file_size_bytes=file_size,
-            sha256=sha256.hexdigest(),
+            sha256=sha256_hex,
         )
         return {
             "dataset_id": complete_resp.dataset_id,
             "status": complete_resp.status,
-            "sha256": sha256.hexdigest(),
+            "sha256": sha256_hex,
             "file_size_bytes": file_size,
         }
 
@@ -555,7 +550,7 @@ class AdaptiveDataClient:
         dataset_name = dataset_name or (
             f"CrisisLingua-VQA-{operation}-{batch_id}-{int(time.time())}"
         )
-        upload = await self._upload_file_streaming_async(
+        upload = await self._upload_file_s3_compatible_async(
             path, dataset_name=dataset_name
         )
         dataset_id = upload["dataset_id"]
